@@ -6,6 +6,9 @@ import io
 import os
 import re
 import time
+import docx 
+import docx2pdf 
+import pdfkit
 
 import openai
 from azure.ai.formrecognizer import DocumentAnalysisClient
@@ -16,6 +19,7 @@ from azure.search.documents.indexes import SearchIndexClient
 from azure.search.documents.indexes.models import *
 from azure.storage.blob import BlobServiceClient
 from pypdf import PdfReader, PdfWriter
+from fpdf import FPDF
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
 MAX_SECTION_LENGTH = 1000
@@ -24,6 +28,8 @@ SECTION_OVERLAP = 100
 
 def blob_name_from_file_page(filename, page = 0):
     if os.path.splitext(filename)[1].lower() == ".pdf":
+        return os.path.splitext(os.path.basename(filename))[0] + f"-{page}" + ".pdf"
+    elif os.path.splitext(filename)[1].lower() == ".docx":
         return os.path.splitext(os.path.basename(filename))[0] + f"-{page}" + ".pdf"
     else:
         return os.path.basename(filename)
@@ -47,6 +53,49 @@ def upload_blobs(filename):
             writer.write(f)
             f.seek(0)
             blob_container.upload_blob(blob_name, f, overwrite=True)
+    elif os.path.splitext(filename)[1].lower() == ".docx":
+
+        #pdf_data = io.BytesIO()
+        pdf_filename = filename[:-4] + "pdf"
+        docx2pdf.convert(filename, pdf_filename) 
+        #pdfkit.from_file(filename, pdf_data, options={'quiet': ''})
+
+        # stream = io.BytesIO() 
+        # # Load the docx file from the memory stream  
+        # doc = docx.Document(stream) 
+        # # Extract the text from the docx file  
+        # text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+
+        # # Create a PDF object  
+        # pdf = FPDF()  
+        # pdf.add_page() 
+
+        # # Set font and text color  
+        # pdf.set_font("Arial", size=12)  
+        # pdf.set_text_color(0, 0, 0)  
+        # # Write the text to the PDF  
+        # pdf.write(5, text)  
+
+        # # Save the PDF to a memory stream  
+        # pdf_stream = io.BytesIO(pdf.output(dest="S").encode("latin1"))
+
+        reader = PdfReader(pdf_filename)
+        pages = reader.pages
+
+        for i in range(len(pages)):
+            blob_name = blob_name_from_file_page(pdf_filename, i)
+            if args.verbose: print(f"\tUploading blob for page {i} -> {blob_name}")
+            f = io.BytesIO()
+            writer = PdfWriter()
+            writer.add_page(pages[i])
+            writer.write(f)
+            f.seek(0)
+            blob_container.upload_blob(blob_name, f, overwrite=True)
+
+        # Close the memory streams  
+        #stream.close()  
+        #pdf_stream.close()  
+
     else:
         blob_name = blob_name_from_file_page(filename)
         with open(filename,"rb") as data:
